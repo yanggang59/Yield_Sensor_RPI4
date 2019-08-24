@@ -1,0 +1,120 @@
+#include "ImageProcessing.h"
+
+/**
+*公式：
+*     Zc = 32*fx/(u-cx)
+*     Xc = (u-cx)*Zc/fx
+*     Yc = (v-cy)*Zc/fy = 32*fx*(v-cy)/(fy*(u-cx))
+*     算出y坐标之差 就是谷物厚度和刮板厚度之和。
+*/
+
+/**分块处理图片
+*/
+void ImageProcessing(Mat& thisFrame, Mat& mask, float volume_weight, float CSA,float& sum_weight,float coeff)
+{
+	float fx = 1671.39;
+	float fy = 1718.28;
+	float cx = 783.30;
+	float cy = 610.64;
+
+	bitwise_and(thisFrame, mask, thisFrame);
+
+	threshold(thisFrame, thisFrame, 5, 255, CV_THRESH_BINARY);
+
+
+	/**两个区域
+	* A:(30,900)(343,1026)　顶部区域
+	* B:(561,1086)(879,1103)　刮板区域
+	* 
+	*/
+	bool findPeakInA = false; //A区域包含顶点？
+
+	Point peak;  //顶点
+	Point3f real_peak; //顶点的三维坐标
+
+	Point bottom;//底点
+	Point3f real_bottom; //底点的三维坐标
+
+	bool isVoid = false;//是否为空刮板
+
+	/*查看A区域是否有点
+	*/
+	for (int i = 30; i < 343; i++) //i代表行，也就是V
+	{
+		if (findPeakInA) break;
+		for (int j = 900; j < 1026; j++)//j代表列，也就是U
+		{
+			if (thisFrame.at<uchar>(i, j)>0)
+			{
+				findPeakInA = true;
+				cout << "In A area;" << endl;
+				peak.x = j;
+				peak.y = i;
+				cout <<"Peak: "<< j << " , " << i << endl;
+				break;
+			}
+		}
+	}
+
+
+	/*如果没有找到顶点
+	*/
+	if (!findPeakInA)
+	{
+		isVoid = true;
+
+		cout << "Void Scrapper" << endl;
+	}
+	else
+	{
+
+		real_peak.z = 32 * fx / (peak.x - cx);
+		real_peak.x = (peak.x - cx)*real_peak.z / fx;
+		real_peak.y = 32 * fx*(peak.y - cy) / (fy*(peak.x - cx));
+	}
+
+	//是否找到底点
+	bool findBottom = false;
+	if (!isVoid)
+	{
+		for (int i = 879; i >= 561; i--)
+		{
+			if (findBottom) break;
+			for (int j = 1103; j > 1086; j--)
+			{
+				if (thisFrame.at<uchar>(i, j)>0)
+				{
+					findBottom = true;
+					cout << "bottom find !!!" << endl;
+					bottom.x = j;
+                                ;	bottom.y = i;
+					cout << j << " , " << i << endl;
+					break;
+				}
+			}
+		}
+	}
+
+	//只有当刮板不为空且找到刮板最低点才计算谷堆高度
+
+	if (!isVoid && findBottom)
+	{
+		real_bottom.z = 32 * fx / (bottom.x - cx);
+		//real_bottom.x = (bottom.x - cx)*real_bottom.z / fx;
+		real_bottom.y = 32 * fx*(bottom.y - cy) / (fy*(bottom.x - cx));
+		//注意y轴是向下的，所以需要加一个负号,注意计算出来的单位是mm
+		float distance = -(real_peak.y - real_bottom.y);
+		if (distance > 30) distance -= 10.0;
+		else distance = 0.0;
+		
+		//计算出产量，单位为g
+                float this_weight = CSA * distance / 10.0 * volume_weight/coeff;
+                //float this_weight = CSA * (bottom.y - peak.y)*1.0/200*volume_weight;
+
+		sum_weight += this_weight;
+		
+		//改成单位为kg
+		//sum_weight/=1000.0;
+	}
+
+}
